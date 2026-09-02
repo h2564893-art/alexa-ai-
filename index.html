@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Alexa AI</title>
 
+  <!-- Free AI brain - no API key needed -->
+  <script src="https://js.puter.com/v2/"></script>
+
   <style>
     * {
       box-sizing: border-box;
@@ -76,6 +79,7 @@
       border-radius: 14px;
       margin-bottom: 10px;
       line-height: 1.5;
+      white-space: pre-wrap;
     }
 
     .user {
@@ -118,6 +122,11 @@
       opacity: .9;
     }
 
+    button:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+    }
+
     .mic {
       width: 60px;
       height: 55px;
@@ -145,6 +154,27 @@
       color: #9ca3af;
       padding: 20px;
     }
+
+    .typing {
+      display: inline-flex;
+      gap: 4px;
+    }
+
+    .typing span {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #9ca3af;
+      animation: blink 1.2s infinite;
+    }
+
+    .typing span:nth-child(2) { animation-delay: .2s; }
+    .typing span:nth-child(3) { animation-delay: .4s; }
+
+    @keyframes blink {
+      0%, 80%, 100% { opacity: .2; }
+      40% { opacity: 1; }
+    }
   </style>
 </head>
 
@@ -161,7 +191,7 @@
     <div class="chat" id="chat">
       <div class="welcome">
         Assalam-o-Alaikum 👋<br>
-        Main Alexa hoon. Baat karein?
+        Main Alexa hoon. Ab mera AI brain connect ho chuka hai — kuch bhi pucho!
       </div>
     </div>
 
@@ -178,10 +208,16 @@
         onkeydown="if(event.key==='Enter') sendMessage()"
       >
 
-      <button class="send" onclick="sendMessage()">
+      <button class="send" id="sendBtn" onclick="sendMessage()">
         ➤
       </button>
 
+    </div>
+
+    <div style="text-align:center; margin-top: 14px;">
+      <button id="wakeBtn" onclick="toggleWakeMode()" style="background:#166534; width:auto; padding: 10px 20px; font-size: 14px;">
+        🔊 Wake Word Off - "Alexa AI" bolo activate karne ke liye
+      </button>
     </div>
 
   </div>
@@ -192,162 +228,418 @@
   const chat = document.getElementById("chat");
   const statusText = document.getElementById("status");
   const micBtn = document.getElementById("micBtn");
+  const sendBtn = document.getElementById("sendBtn");
 
-  function addMessage(text, type) {
-
-    const message = document.createElement("div");
-
-    message.className = "message " + type;
-
-    message.textContent = text;
-
-    chat.appendChild(message);
-
-    chat.scrollTop = chat.scrollHeight;
+  // Ask for notification permission so reminders can show even if tab isn't focused
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission();
   }
 
-  function speak(text) {
+  // Keep short conversation memory so replies stay relevant
+  let history = [
+    {
+      role: "system",
+      content: "Tum 'Alexa AI' ho, user ke personal assistant, Roman Urdu/Hindi mix mein baat karte ho jaise ek dost karta hai. Tumhara tone user ke mood ke mutabiq badalta hai: agar user casual/mazak wali baat kare (jokes, gup shup, khali baatein) to tum bhi khushdil, hasi-mazak wale, thoda mazakiya tone mein jawab do. Lekin agar user kaam ki baat kare (udhar/khata, reminders, calculations, kisi cheez ka professional jawab, decisions) to seedha, focused aur professional tone rakho — bina fuzool baat ke. User ko kabhi kabhi 'Jani' keh sakte ho jab mahol halka ho. Jawab hamesha chota aur seedha rakho jab tak user detail na maange."
+    }
+  ];
 
-    if (!("speechSynthesis" in window)) {
-      return;
+  function addMessage(text, type) {
+    const message = document.createElement("div");
+    message.className = "message " + type;
+    message.textContent = text;
+    chat.appendChild(message);
+    chat.scrollTop = chat.scrollHeight;
+    return message;
+  }
+
+  function addTyping() {
+    const el = document.createElement("div");
+    el.className = "message ai typing-wrap";
+    el.innerHTML = '<span class="typing"><span></span><span></span><span></span></span>';
+    chat.appendChild(el);
+    chat.scrollTop = chat.scrollHeight;
+    return el;
+  }
+
+  // ===== PHONE CONTROL (MacroDroid webhooks) =====
+  // 1) Install MacroDroid on your phone (free)
+  // 2) Create a macro with a "Webhook (URL)" trigger, give it an identifier like "flashlight"
+  // 3) Copy the base URL MacroDroid gives you (looks like https://trigger.macrodroid.com/xxxxxxxx-xxxx-xxxx)
+  // 4) Paste it below between the quotes
+  const MACRODROID_BASE_URL = "https://trigger.macrodroid.com/03575066-925e-45b0-92c1-bdaae7e80fa5"; // your device webhook base URL
+
+  function triggerPhoneAction(identifier) {
+    if (!MACRODROID_BASE_URL) {
+      return "MacroDroid abhi connect nahi hua. Pehle webhook URL add karna hoga.";
+    }
+    fetch(MACRODROID_BASE_URL + "/" + identifier).catch(() => {});
+    return null; // reply handled by caller
+  }
+
+  // ===== REMINDERS =====
+  // Understands things like: "mujhe 10 minute baad paani peene ko yaad dilana"
+  // or "remind me in 5 minutes to call mom"
+  function tryReminder(rawText) {
+    const text = rawText.toLowerCase();
+
+    // Urdu/Roman Urdu pattern: <number> minute/ghante (baad) ... yaad dila
+    let match = text.match(/(\d+)\s*(minute|min|ghanta|ghante|hour|hours)\D*(?:yaad dila|remind)?/);
+    const isReminder = text.includes("yaad dila") || text.includes("remind me") || text.includes("remind");
+
+    if (!isReminder || !match) return null;
+
+    const amount = parseInt(match[1], 10);
+    const unit = match[2];
+    const isHours = unit.startsWith("ghanta") || unit.startsWith("ghante") || unit.startsWith("hour");
+    const ms = amount * (isHours ? 3600000 : 60000);
+
+    // try to pull out what the reminder is about (best effort)
+    let subject = rawText
+      .replace(/\d+\s*(minute|min|ghanta|ghante|hour|hours)/i, "")
+      .replace(/(baad|yaad dila(o|na)?|remind me( in| to)?|mujhe|ko)/gi, "")
+      .trim();
+
+    if (!subject) subject = "ye";
+
+    setTimeout(() => {
+      const msg = "Jani, yaad dila raha hoon: " + subject;
+      addMessage(msg, "ai");
+      speak(msg);
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("Alexa AI - Reminder", { body: msg });
+      }
+    }, ms);
+
+    return "Theek hai Jani, " + amount + " " + (isHours ? "ghante" : "minute") + " baad yaad dila dunga: " + subject;
+  }
+
+  // ===== UDHAR KHATA (Credit Ledger) =====
+  // Saved permanently in this browser (localStorage) — survives closing the tab
+  function getKhata() {
+    try {
+      return JSON.parse(localStorage.getItem("udhar_khata") || "[]");
+    } catch {
+      return [];
+    }
+  }
+
+  function saveKhata(khata) {
+    localStorage.setItem("udhar_khata", JSON.stringify(khata));
+  }
+
+  function tryKhataCommand(rawText) {
+    const text = rawText.toLowerCase();
+
+    // "Ali ne 500 rupay udhar liye 10 din mein dega"
+    // "Ahmed ko 1000 udhar diya"
+    const addMatch = rawText.match(/([a-zA-Z\u0600-\u06FF]+)\s*(ne|ko)\s*(\d+)\s*(rupay|rupaye|rs)?\s*udhar\s*(liya|liye|diya|di)/i);
+
+    if (addMatch) {
+      const name = addMatch[1];
+      const amount = parseInt(addMatch[3], 10);
+
+      // try to catch a due timeframe like "10 din mein" / "1 hafte mein" / "2 mahine mein"
+      const dueMatch = rawText.match(/(\d+)\s*(din|hafte|hafta|mahine|mahina|week|month|day)/i);
+      const dueText = dueMatch ? (dueMatch[1] + " " + dueMatch[2]) : "koi date nahi bataye";
+
+      const khata = getKhata();
+      khata.push({
+        name: name,
+        amount: amount,
+        due: dueText,
+        date: new Date().toLocaleDateString(),
+        paid: false
+      });
+      saveKhata(khata);
+
+      return name + " ke naam " + amount + " rupay udhar likh diya. Wapsi: " + dueText + ".";
     }
 
+    // "Ali ne wapis kar diya" / "Ali ka udhar clear karo"
+    const clearMatch = rawText.match(/([a-zA-Z\u0600-\u06FF]+)\s*(ne wapis|ka udhar clear|paisa de diya|wapis kar diya)/i);
+    if (clearMatch) {
+      const name = clearMatch[1];
+      const khata = getKhata();
+      let found = false;
+      khata.forEach(entry => {
+        if (entry.name.toLowerCase() === name.toLowerCase() && !entry.paid) {
+          entry.paid = true;
+          found = true;
+        }
+      });
+      saveKhata(khata);
+      return found
+        ? name + " ka udhar clear kar diya, shukriya bataane ke liye."
+        : name + " ke naam koi pending udhar nahi mila.";
+    }
+
+    // "Ali ka kitna udhar hai"
+    const checkMatch = rawText.match(/([a-zA-Z\u0600-\u06FF]+)\s*(ka|ke)\s*(kitna)?\s*udhar/i);
+    if (checkMatch && !addMatch) {
+      const name = checkMatch[1];
+      const khata = getKhata();
+      const pending = khata.filter(e => e.name.toLowerCase() === name.toLowerCase() && !e.paid);
+
+      if (pending.length === 0) return name + " ke zimme koi udhar nahi hai.";
+
+      const total = pending.reduce((sum, e) => sum + e.amount, 0);
+      return name + " ke zimme total " + total + " rupay udhar hai.";
+    }
+
+    // "sara udhar dikhao" / "poora khata sunao" / "list dikhao"
+    if (text.includes("sara udhar") || text.includes("poora khata") || text.includes("khata dikhao") || text.includes("khata sunao")) {
+      const khata = getKhata().filter(e => !e.paid);
+      if (khata.length === 0) return "Abhi koi udhar pending nahi hai, khata saaf hai.";
+
+      const lines = khata.map(e => e.name + ": " + e.amount + " rupay (" + e.due + ")");
+      return "Pending udhar:\n" + lines.join("\n");
+    }
+
+    return null;
+  }
+
+
+    if (!("speechSynthesis" in window)) return;
     window.speechSynthesis.cancel();
-
     const voice = new SpeechSynthesisUtterance(text);
-
     voice.lang = "ur-PK";
     voice.rate = 0.95;
     voice.pitch = 1;
-
     window.speechSynthesis.speak(voice);
   }
 
-  function getReply(text) {
+  // Handles simple built-in tasks the browser CAN actually do.
+  // Returns a reply string if handled, or null if it should go to the AI brain.
+  function tryLocalCommand(rawText) {
+    const text = rawText.toLowerCase();
 
-    const message = text.toLowerCase();
+    // Udhar Khata - check before anything else
+    const khataReply = tryKhataCommand(rawText);
+    if (khataReply) return khataReply;
 
-    if (
-      message.includes("assalam") ||
-      message.includes("salam")
-    ) {
-      return "Wa Alaikum Assalam Jani! Main Alexa hoon. Kaise madad karoon?";
+    // Reminders - check first
+    const reminderReply = tryReminder(rawText);
+    if (reminderReply) return reminderReply;
+
+    // Phone control via MacroDroid
+    if (text.includes("flashlight") || text.includes("torch")) {
+      const errorMsg = triggerPhoneAction("flashlight");
+      return errorMsg || "Flashlight command bhej diya.";
     }
 
-    if (
-      message.includes("naam") ||
-      message.includes("name")
-    ) {
-      return "Mera naam Alexa AI hai.";
+    if (text.includes("whatsapp")) {
+      const errorMsg = triggerPhoneAction("whatsapp");
+      return errorMsg || "WhatsApp khol raha hoon.";
     }
 
-    if (
-      message.includes("kaise ho") ||
-      message.includes("how are you")
-    ) {
-      return "Alhamdulillah, main bilkul theek hoon. Aap sunao Jani!";
+    if (text.includes("alarm")) {
+      const errorMsg = triggerPhoneAction("alarm");
+      return errorMsg || "Alarm command bhej diya.";
     }
 
-    if (
-      message.includes("hello") ||
-      message.includes("hi")
-    ) {
-      return "Hello Jani! Kya haal hai?";
+    if (text.includes("time") || text.includes("waqt") || text.includes("time kya")) {
+      const now = new Date();
+      return "Abhi time hai: " + now.toLocaleTimeString();
     }
 
-    return "Jani, maine aapki baat suni hai. Abhi mera AI brain connect nahi hua. Agle step mein hum mujhe real AI se connect karenge.";
+    if (text.includes("date") || text.includes("tareekh")) {
+      const now = new Date();
+      return "Aaj ki date hai: " + now.toLocaleDateString();
+    }
+
+    if (text.startsWith("search ") || text.startsWith("google ")) {
+      const query = rawText.split(" ").slice(1).join(" ");
+      window.open("https://www.google.com/search?q=" + encodeURIComponent(query), "_blank");
+      return "Google pe '" + query + "' search kar diya, naye tab mein dekho.";
+    }
+
+    if (text.startsWith("open ") && text.includes(".com")) {
+      const site = rawText.split(" ")[1];
+      const url = site.startsWith("http") ? site : "https://" + site;
+      window.open(url, "_blank");
+      return site + " khol diya.";
+    }
+
+    return null;
   }
 
-  function sendMessage() {
+  async function getAIReply(text) {
+    history.push({ role: "user", content: text });
 
+    // keep history short (system + last 10 turns)
+    if (history.length > 21) {
+      history = [history[0], ...history.slice(-20)];
+    }
+
+    const response = await puter.ai.chat(history);
+    const replyText = response?.message?.content || response?.toString?.() || String(response);
+
+    history.push({ role: "assistant", content: replyText });
+
+    return replyText;
+  }
+
+  async function sendMessage() {
     const text = input.value.trim();
-
     if (!text) return;
 
     addMessage(text, "user");
-
     input.value = "";
-
+    sendBtn.disabled = true;
+    micBtn.disabled = true;
     statusText.textContent = "Alexa is thinking...";
 
-    setTimeout(() => {
+    // First check if it's something the browser can just do itself
+    const localReply = tryLocalCommand(text);
 
-      const reply = getReply(text);
-
-      addMessage(reply, "ai");
-
-      speak(reply);
-
+    if (localReply) {
+      addMessage(localReply, "ai");
+      speak(localReply);
       statusText.textContent = "Ready to listen...";
+      sendBtn.disabled = false;
+      micBtn.disabled = false;
+      return;
+    }
 
-    }, 500);
+    // Otherwise ask the real AI brain
+    const typingEl = addTyping();
+
+    try {
+      const reply = await getAIReply(text);
+      typingEl.remove();
+      addMessage(reply, "ai");
+      speak(reply);
+    } catch (err) {
+      typingEl.remove();
+      addMessage("Sorry Jani, abhi AI se connect nahi ho paya. Dobara try karo.", "ai");
+      console.error(err);
+    }
+
+    statusText.textContent = "Ready to listen...";
+    sendBtn.disabled = false;
+    micBtn.disabled = false;
   }
 
   function startListening() {
-
-    const SpeechRecognition =
-      window.SpeechRecognition ||
-      window.webkitSpeechRecognition;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-
-      alert(
-        "Voice recognition is not supported in this browser. Chrome Android is recommended."
-      );
-
+      alert("Voice recognition is not supported in this browser. Chrome is recommended.");
       return;
     }
 
     const recognition = new SpeechRecognition();
-
     recognition.lang = "ur-PK";
-
     recognition.continuous = false;
-
     recognition.interimResults = false;
 
     micBtn.classList.add("listening");
-
     statusText.textContent = "Listening... Bolo Jani 🎤";
 
     recognition.start();
 
-    recognition.onresult = function(event) {
-
-      const text =
-        event.results[0][0].transcript;
-
+    recognition.onresult = function (event) {
+      const text = event.results[0][0].transcript;
       input.value = text;
-
       micBtn.classList.remove("listening");
-
       statusText.textContent = "Got it!";
-
       sendMessage();
     };
 
-    recognition.onerror = function() {
-
+    recognition.onerror = function () {
       micBtn.classList.remove("listening");
-
       statusText.textContent = "Voice error. Dobara try karo.";
-
     };
 
-    recognition.onend = function() {
-
+    recognition.onend = function () {
       micBtn.classList.remove("listening");
-
-      if (
-        statusText.textContent ===
-        "Listening... Bolo Jani 🎤"
-      ) {
-        statusText.textContent =
-          "Ready to listen...";
+      if (statusText.textContent === "Listening... Bolo Jani 🎤") {
+        statusText.textContent = "Ready to listen...";
       }
+    };
+  }
 
+  // ===== WAKE WORD ("Alexa AI") =====
+  let wakeModeOn = false;
+  let wakeRecognition = null;
+  const wakeBtn = document.getElementById("wakeBtn");
+
+  function toggleWakeMode() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert("Voice recognition is not supported in this browser. Chrome is recommended.");
+      return;
+    }
+
+    if (wakeModeOn) {
+      // turn off
+      wakeModeOn = false;
+      if (wakeRecognition) wakeRecognition.stop();
+      wakeBtn.textContent = '🔊 Wake Word Off - "Alexa AI" bolo activate karne ke liye';
+      wakeBtn.style.background = "#166534";
+      statusText.textContent = "Ready to listen...";
+      return;
+    }
+
+    wakeModeOn = true;
+    wakeBtn.textContent = '👂 Wake Word ON - "Alexa AI" bolo';
+    wakeBtn.style.background = "#7c2d92";
+    statusText.textContent = 'Sun raha hoon... "Alexa AI" bolo';
+
+    startWakeListener();
+  }
+
+  function startWakeListener() {
+    if (!wakeModeOn) return;
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    wakeRecognition = new SpeechRecognition();
+    wakeRecognition.lang = "ur-PK";
+    wakeRecognition.continuous = false;
+    wakeRecognition.interimResults = false;
+
+    wakeRecognition.onresult = function (event) {
+      const text = event.results[0][0].transcript;
+      const lower = text.toLowerCase();
+
+      if (lower.includes("alexa")) {
+        // strip the wake word out, whatever's left (if anything) is the actual command
+        const command = text.replace(/alexa\s*(ai)?/gi, "").trim();
+
+        speak("Yes Boss!");
+        statusText.textContent = "Yes Boss! Bolo kya karna hai 🎤";
+        addMessage("(Wake word detected) Alexa AI", "user");
+        addMessage("Yes Boss!", "ai");
+
+        if (command) {
+          // they said the command in the same breath, e.g. "Alexa AI flashlight jalao"
+          input.value = command;
+          sendMessage();
+        } else {
+          // just listen for the next thing they say
+          setTimeout(() => {
+            if (wakeModeOn) startListening();
+          }, 600);
+        }
+      }
     };
 
+    wakeRecognition.onerror = function (e) {
+      // "no-speech" happens constantly in idle listening - just restart quietly
+    };
+
+    wakeRecognition.onend = function () {
+      if (wakeModeOn) {
+        setTimeout(startWakeListener, 300); // keep listening continuously
+      }
+    };
+
+    try {
+      wakeRecognition.start();
+    } catch (e) {
+      // recognition already running - ignore
+    }
   }
 
 </script>
