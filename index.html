@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alexa AI</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: #0b1020;
+      color: white;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .app {
+      width: 100%;
+      max-width: 600px;
+      background: #11182b;
+      border: 1px solid #26314d;
+      border-radius: 24px;
+      padding: 25px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.4);
+    }
+
+    .logo {
+      text-align: center;
+      margin-bottom: 25px;
+    }
+
+    .logo-circle {
+      width: 90px;
+      height: 90px;
+      margin: auto;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #7c3aed, #06b6d4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 38px;
+      box-shadow: 0 0 35px rgba(124,58,237,.5);
+    }
+
+    h1 {
+      margin-top: 15px;
+      font-size: 30px;
+    }
+
+    .status {
+      text-align: center;
+      color: #9ca3af;
+      margin: 8px 0 20px;
+    }
+
+    .chat {
+      height: 300px;
+      overflow-y: auto;
+      background: #0a0f1d;
+      border-radius: 16px;
+      padding: 15px;
+      margin-bottom: 15px;
+    }
+
+    .message {
+      padding: 12px 15px;
+      border-radius: 14px;
+      margin-bottom: 10px;
+      line-height: 1.5;
+    }
+
+    .user {
+      background: #263c72;
+      margin-left: 40px;
+    }
+
+    .ai {
+      background: #1d293d;
+      margin-right: 40px;
+    }
+
+    .input-area {
+      display: flex;
+      gap: 8px;
+    }
+
+    input {
+      flex: 1;
+      padding: 15px;
+      border: none;
+      outline: none;
+      border-radius: 14px;
+      background: #202a40;
+      color: white;
+      font-size: 16px;
+    }
+
+    button {
+      border: none;
+      cursor: pointer;
+      border-radius: 14px;
+      padding: 0 18px;
+      font-size: 18px;
+      color: white;
+      background: #6d28d9;
+    }
+
+    button:hover {
+      opacity: .9;
+    }
+
+    .mic {
+      width: 60px;
+      height: 55px;
+      background: #0891b2;
+    }
+
+    .mic.listening {
+      background: #dc2626;
+      animation: pulse 1s infinite;
+    }
+
+    .send {
+      width: 60px;
+      height: 55px;
+    }
+
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(220,38,38,.6); }
+      70% { box-shadow: 0 0 0 18px rgba(220,38,38,0); }
+      100% { box-shadow: 0 0 0 0 rgba(220,38,38,0); }
+    }
+
+    .welcome {
+      text-align: center;
+      color: #9ca3af;
+      padding: 20px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="app">
+
+    <div class="logo">
+      <div class="logo-circle">A</div>
+      <h1>Alexa AI</h1>
+      <div class="status" id="status">Ready to listen...</div>
+    </div>
+
+    <div class="chat" id="chat">
+      <div class="welcome">
+        Assalam-o-Alaikum 👋<br>
+        Main Alexa hoon. Baat karein?
+      </div>
+    </div>
+
+    <div class="input-area">
+
+      <button class="mic" id="micBtn" onclick="startListening()">
+        🎤
+      </button>
+
+      <input
+        id="userInput"
+        type="text"
+        placeholder="Type your message..."
+        onkeydown="if(event.key==='Enter') sendMessage()"
+      >
+
+      <button class="send" onclick="sendMessage()">
+        ➤
+      </button>
+
+    </div>
+
+  </div>
+
+<script>
+
+  const input = document.getElementById("userInput");
+  const chat = document.getElementById("chat");
+  const statusText = document.getElementById("status");
+  const micBtn = document.getElementById("micBtn");
+
+  function addMessage(text, type) {
+
+    const message = document.createElement("div");
+
+    message.className = "message " + type;
+
+    message.textContent = text;
+
+    chat.appendChild(message);
+
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  function speak(text) {
+
+    if (!("speechSynthesis" in window)) {
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+
+    const voice = new SpeechSynthesisUtterance(text);
+
+    voice.lang = "ur-PK";
+    voice.rate = 0.95;
+    voice.pitch = 1;
+
+    window.speechSynthesis.speak(voice);
+  }
+
+  function getReply(text) {
+
+    const message = text.toLowerCase();
+
+    if (
+      message.includes("assalam") ||
+      message.includes("salam")
+    ) {
+      return "Wa Alaikum Assalam Jani! Main Alexa hoon. Kaise madad karoon?";
+    }
+
+    if (
+      message.includes("naam") ||
+      message.includes("name")
+    ) {
+      return "Mera naam Alexa AI hai.";
+    }
+
+    if (
+      message.includes("kaise ho") ||
+      message.includes("how are you")
+    ) {
+      return "Alhamdulillah, main bilkul theek hoon. Aap sunao Jani!";
+    }
+
+    if (
+      message.includes("hello") ||
+      message.includes("hi")
+    ) {
+      return "Hello Jani! Kya haal hai?";
+    }
+
+    return "Jani, maine aapki baat suni hai. Abhi mera AI brain connect nahi hua. Agle step mein hum mujhe real AI se connect karenge.";
+  }
+
+  function sendMessage() {
+
+    const text = input.value.trim();
+
+    if (!text) return;
+
+    addMessage(text, "user");
+
+    input.value = "";
+
+    statusText.textContent = "Alexa is thinking...";
+
+    setTimeout(() => {
+
+      const reply = getReply(text);
+
+      addMessage(reply, "ai");
+
+      speak(reply);
+
+      statusText.textContent = "Ready to listen...";
+
+    }, 500);
+  }
+
+  function startListening() {
+
+    const SpeechRecognition =
+      window.SpeechRecognition ||
+      window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+
+      alert(
+        "Voice recognition is not supported in this browser. Chrome Android is recommended."
+      );
+
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+
+    recognition.lang = "ur-PK";
+
+    recognition.continuous = false;
+
+    recognition.interimResults = false;
+
+    micBtn.classList.add("listening");
+
+    statusText.textContent = "Listening... Bolo Jani 🎤";
+
+    recognition.start();
+
+    recognition.onresult = function(event) {
+
+      const text =
+        event.results[0][0].transcript;
+
+      input.value = text;
+
+      micBtn.classList.remove("listening");
+
+      statusText.textContent = "Got it!";
+
+      sendMessage();
+    };
+
+    recognition.onerror = function() {
+
+      micBtn.classList.remove("listening");
+
+      statusText.textContent = "Voice error. Dobara try karo.";
+
+    };
+
+    recognition.onend = function() {
+
+      micBtn.classList.remove("listening");
+
+      if (
+        statusText.textContent ===
+        "Listening... Bolo Jani 🎤"
+      ) {
+        statusText.textContent =
+          "Ready to listen...";
+      }
+
+    };
+
+  }
+
+</script>
+
+</body>
+</html>
