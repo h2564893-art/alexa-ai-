@@ -205,14 +205,53 @@ function addTyping() {
   return el;
 }
 
+// ============================================
+// VOICE (FIXED — female voice, properly loaded)
+// ============================================
+var cachedVoices = [];
+function loadVoices() {
+  cachedVoices = window.speechSynthesis.getVoices();
+}
+loadVoices();
+if (window.speechSynthesis.onvoiceschanged !== undefined) {
+  window.speechSynthesis.onvoiceschanged = loadVoices;
+}
+
+function pickFemaleVoice() {
+  var voices = cachedVoices.length ? cachedVoices : window.speechSynthesis.getVoices();
+  var priorities = [
+    function (v) { return /hindi/i.test(v.name) && /female/i.test(v.name); },
+    function (v) { return v.lang === "hi-IN"; },
+    function (v) { return /Google.*Female/i.test(v.name); },
+    function (v) { return /Zira|Susan|Samantha|Google UK English Female/i.test(v.name); },
+    function (v) { return v.lang && v.lang.indexOf("en") === 0; }
+  ];
+  for (var i = 0; i < priorities.length; i++) {
+    var found = voices.find(priorities[i]);
+    if (found) return found;
+  }
+  return voices[0] || null;
+}
+
 function speak(text) {
   if (!("speechSynthesis" in window)) return;
   window.speechSynthesis.cancel();
-  var voice = new SpeechSynthesisUtterance(text);
-  voice.lang = "ur-PK";
-  voice.rate = 0.95;
-  voice.pitch = 1;
-  window.speechSynthesis.speak(voice);
+
+  var utter = new SpeechSynthesisUtterance(text);
+  var voice = pickFemaleVoice();
+
+  if (voice) {
+    utter.voice = voice;
+    utter.lang = voice.lang;
+  } else {
+    utter.lang = "hi-IN";
+  }
+
+  utter.rate = 0.97;
+  utter.pitch = 1.1;
+  utter.volume = 1;
+
+  window.speechSynthesis.speak(utter);
 }
 
 // ============================================
