@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Alexa — Aapki Sahayak</title>
 
-<script src="https://js.puter.com/v2/"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 
@@ -346,6 +345,15 @@
 
 <script>
 
+// ============================================
+// OPENROUTER API (free) — key already lagi hui hai
+// ============================================
+var OPENROUTER_API_KEY = "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";
+var OPENROUTER_MODEL = "meta-llama/llama-3.3-70b-instruct:free";
+
+// ============================================
+// SETUP
+// ============================================
 var input = document.getElementById("userInput");
 var chat = document.getElementById("chat");
 var statusText = document.getElementById("status");
@@ -374,6 +382,9 @@ function setStatus(text, busy) {
   statusDot.classList.toggle("busy", !!busy);
 }
 
+// ============================================
+// CHAT UI HELPERS
+// ============================================
 function addMessage(text, type) {
   var row = document.createElement("div");
   row.className = "row " + type;
@@ -405,6 +416,9 @@ function addTyping() {
   return row;
 }
 
+// ============================================
+// VOICE (female voice, properly loaded)
+// ============================================
 var cachedVoices = [];
 function loadVoices() {
   cachedVoices = window.speechSynthesis.getVoices();
@@ -455,6 +469,9 @@ function speak(text) {
   window.speechSynthesis.speak(utter);
 }
 
+// ============================================
+// PHONE CONTROL (MacroDroid)
+// ============================================
 function triggerPhoneAction(identifier) {
   if (!MACRODROID_BASE_URL) {
     return "MacroDroid abhi connect nahi hua.";
@@ -463,6 +480,9 @@ function triggerPhoneAction(identifier) {
   return null;
 }
 
+// ============================================
+// REMINDERS
+// ============================================
 function tryReminder(rawText) {
   var text = rawText.toLowerCase();
   var isReminder = text.indexOf("yaad dila") !== -1 || text.indexOf("remind") !== -1;
@@ -495,6 +515,9 @@ function tryReminder(rawText) {
   return "Theek hai, " + amount + " " + (isHours ? "ghante" : "minute") + " baad yaad dila dunga: " + subject;
 }
 
+// ============================================
+// UDHAR KHATA
+// ============================================
 function getKhata() {
   try {
     return JSON.parse(localStorage.getItem("udhar_khata") || "[]");
@@ -561,6 +584,9 @@ function tryKhataCommand(rawText) {
   return null;
 }
 
+// ============================================
+// LOCAL COMMANDS (checked before AI)
+// ============================================
 function tryLocalCommand(rawText) {
   var text = rawText.toLowerCase();
 
@@ -592,14 +618,37 @@ function tryLocalCommand(rawText) {
   return null;
 }
 
+// ============================================
+// AI BRAIN — OpenRouter (free, no popup issues)
+// ============================================
 function getAIReply(text) {
   history.push({ role: "user", content: text });
   if (history.length > 21) {
     history = [history[0]].concat(history.slice(-20));
   }
 
-  var aiCall = puter.ai.chat(history).then(function (response) {
-    var replyText = (response && response.message && response.message.content) || String(response);
+  var aiCall = fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + OPENROUTER_API_KEY
+    },
+    body: JSON.stringify({
+      model: OPENROUTER_MODEL,
+      messages: history,
+      temperature: 0.7,
+      max_tokens: 512
+    })
+  }).then(function (res) {
+    if (!res.ok) {
+      return res.text().then(function (t) {
+        throw new Error("OpenRouter error " + res.status + ": " + t);
+      });
+    }
+    return res.json();
+  }).then(function (data) {
+    var replyText = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    if (!replyText) throw new Error("Khali jawab aaya");
     history.push({ role: "assistant", content: replyText });
     return replyText;
   });
@@ -613,6 +662,9 @@ function getAIReply(text) {
   return Promise.race([aiCall, timeout]);
 }
 
+// ============================================
+// SEND MESSAGE
+// ============================================
 function sendMessage() {
   var text = input.value.trim();
   if (!text) return;
@@ -658,6 +710,9 @@ input.addEventListener("keydown", function (e) {
   if (e.key === "Enter") sendMessage();
 });
 
+// ============================================
+// VOICE INPUT (single command)
+// ============================================
 function startListening() {
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
@@ -698,6 +753,9 @@ function startListening() {
 
 micBtn.addEventListener("click", startListening);
 
+// ============================================
+// WAKE WORD ("Alexa" → "Yes Boss")
+// ============================================
 var wakeModeOn = false;
 var wakeRecognition = null;
 
